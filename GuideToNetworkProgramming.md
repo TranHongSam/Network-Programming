@@ -49,7 +49,7 @@
 
     <img src="https://2.pik.vn/201876ad0614-9441-4fc6-8235-4acef5977828.jpg">
 
-    Cấu trúc này giúp dễ dàng tham chiếu đến các phần tử của địa chỉ socket. Lưu ý rằng sin_zero (được bao gồm để pad cấu trúc đến độ dài của một struct sockaddr) nên được đặt thành tất cả các số 0 với hàm memset(). Ngoài ra, bit quan trọng, con trỏ trỏ đến struct sockaddr_in có thể được truyền tới con trỏ trỏ tới struct sockaddr và ngược lại. Vì vậy, mặc dù connect() muốn một struct sockaddr*, bạn vẫn có thể sử dụng struct sockaddr_in và cast nó vào phút cuối! Ngoài ra, lưu ý rằng sin_family tương ứng với sa_family trong struct sockaddr và nên được đặt thành “AF_INET”. Cuối cùng, sin_port và sin_addr phải nằm trong Network Byte Order!
+    Cấu trúc này giúp dễ dàng tham chiếu đến các phần tử của địa chỉ socket. Lưu ý rằng sin_zero (được bao gồm để pad cấu trúc đến độ dài của một struct sockaddr) nên được đặt thành tất cả các số 0 với hàm memset(). Ngoài ra, important bit, con trỏ trỏ đến struct sockaddr_in có thể được truyền tới con trỏ trỏ tới struct sockaddr và ngược lại. Vì vậy, mặc dù connect() muốn một struct sockaddr*, bạn vẫn có thể sử dụng struct sockaddr_in và cast nó vào phút cuối! Ngoài ra, lưu ý rằng sin_family tương ứng với sa_family trong struct sockaddr và nên được đặt thành “AF_INET”. Cuối cùng, sin_port và sin_addr phải nằm trong Network Byte Order!
 
 - “Nhưng,” bạn phản đối, “làm thế nào có thể toàn bộ cấu trúc,struct in_addr sin_addr, trong Network Byte Order?” Câu hỏi này yêu cầu kiểm tra cẩn thận cấu trúc struct in_addr, một trong những union tồi tệ nhất còn tồn tại:
 
@@ -58,6 +58,89 @@
     Nó từng là một union, nhưng bây giờ nó dường như đã biến mất. Vì vậy, nếu bạn đã khai báo ina là kiểu struct sockaddr_in, thì ina.sin_addr.s_addr sẽ tham chiếu đến 4 byte địa chỉ IP (trong Network Byte Order). Lưu ý rằng ngay cả khi hệ thống của bạn vẫn sử dụng God-awful union cho struct in_addr, bạn vẫn có thể tham chiếu đến 4 byte địa chỉ IP theo cách giống như làm ở trên (điều này do #defines.)
 
 **3.1 Convert the Natives**
+- Phần này nói về Network to Host Byte Order.
+- Có 2 loại cần phải chuyển đối (convert): short (2 byte) và long (4 byte). Các hàm này hoạt động với các biến không dấu (unsigned). Giả sử bạn muốn chuyển đổi short từ Host Byte Order sang Network Byte Order. Bắt đầu với “h” cho “host”, theo sau với “to”, rồi “n” cho “network” và “s” cho “short”: h-to-n-s, hoặc htons() (đọc: “Host to Network Short”).
+- Bạn có thể sử dụng mọi kết hợp của "n", "h", "s" và "l" bạn muốn, không kể những thứ thực sự ngu ngốc. Ví dụ, không có hàm stolh() ("Short to Long Host"). Nhưng mà có:
+
+    htons() host to network short
+
+    htonl() host to network long
+
+    ntohs() network to host short
+
+    ntohl() network to host long
+
+- Hãy nhớ: đặt các byte vào Network Byte Order trước khi đẩy chúng lên mạng.
+- Cuối cùng: tại sao sin_addr và sin_port cần phải ở trong Network Byte Order trong struct sockaddr_in, nhưng sin_family thì không? Câu trả lời: sin_addr và sin_port tương ứng được đóng gói trong gói ở lớp IP và UDP. Vì vậy, chúng phải ở trong Network Byte Order. Tuy nhiên, trường sin_family chỉ được sử dụng bởi kernel để xác định loại địa chỉ mà cấu trúc chứa, vì vậy nó phải ở trong Host Byte Order. Ngoài ra, do sin_family không được gửi lên trên mạng nên nó có thể ở trong Host Byte Order.
+
+**3.2 IP address and How to deal with them**
+- Thật may mắn, có một loạt các chức năng cho phép bạn thao tác địa chỉ IP. Không cần thực hiện chúng bằng tay và gán vào kiểu long với toán tử <<.
+- Trước tiên, giả sử có 1 struct sockaddr_in ina và một địa chỉ IP “10.12.110.57” mà bạn muốn lưu trữ. Hàm inet_addr()), chuyển đổi một địa chỉ IP dạng số và dấu chấm thành kiểu unsigned long. Việc chuyển nhượng có thể được thực hiện như sau:
+
+    ina.sin_addr.s_addr = inet_addr("10.12.110.57");
+
+- Chú ý rằng inet_addr() trả về địa chỉ trong Network Byte Order mà không cần gọi htonl().
+- Đoạn mã trên không mạnh mẽ vì không có cơ chế kiểm tra lỗi. inet_addr() trả về -1 khi có lỗi, nhưng số nhị phân (không âm)bằng -1 khi địa chỉ IP là 255.255.255.255! Đó là địa chỉ quảng bá! Hãy nhớ kiểm tra lỗi đúng cách.
+- Thực ra, bạn có thể sử dụng interface inet_aton() (aton-ascii to network) thay vì sử dụng inet_addr():
+
+    #include <sys/socket.h>
+
+    #include <netinet/in.h>
+
+    #include <arpa/inet.h>
+
+    int inet_aton (const char *cp, struct in_addr *inp);
+
+- Đây là cách sử dụng mẫu khi đóng gói một cấu trúc sockaddr_in (ví dụ này sẽ có ý nghĩa hơn khi bạn đọc đến các phần bind() và connect()):
+
+    struct sockaddr_in my_addr;
+
+    my_addr.sin_family = AF_INET; // host byte order
+
+    my_addr.sin_port = htons(MYPORT); //short, network byte order
+
+    inet_aton("10.12.110.57",&(my_addr.sin_addr));
+
+    memset(my_addr.sin_zero, '\0', sizeof my_addr.sin_zero);
+
+- inet_aton() không giống như tất cả các hàm liên quan đến socket khác, trả về số khác 0 khi thành công, và 0 khi thất bại. Địa chỉ được truyền lại trong inp.
+- Không may, không phải tất cả các nền tảng đều triển khai inet_aton() mặc dù việc sử dụng nó được ưa thích hơn. Trong tài liệu này, inet_addr() sẽ được sử dụng nhiều hơn.
+- Bây giờ, cần chuyển đối chuỗi địa chỉ IP thành biểu diễn nhị phân của chúng. Nếu có struct in_addr và muốn in ra màn hình ký tự dạng thập phân của địa chỉ IP, thì sử dụng hàn inet_ntoa() (ntoa-network to ascii):
+
+    printl("%s", inet_ntoa(ina.sin_addr));
+
+- Chú ý rằng inet_ntoa() coi struct in-addr như là 1 đối số (argument), không phải kiểu long. Ngoài ra, nó trả về con trỏ tới kiểu char. Nó trỏ đến một mảng char được lưu trữ tĩnh trong inet_ntoa() để mỗi khi bạn gọi inet_ntoa() nó sẽ ghi đè địa chỉ IP cuối cùng mà bạn yêu cầu. VD:
+
+    char *a1, *a2;
+
+    a1=inet_ntoa(inal.sin_addr); //this is 192.168.4.14
+
+    a2=inet_ntoa(ina2.sin_addr); //this is 10.12.110.57
+
+    printf("address 1: %s\n", a1);
+
+    printf("address 2: %s\n", a2);
+
+    In ra màn hình:
+
+        address 1: 10.12.110.57
+
+        address 2: 10.12.110.57
+
+- Nếu bạn muốn lưu địa chỉ này, strcpy() sẽ lưu địa chỉ đó và mảng ký tự của riêng bạn.
+
+*3.2.1 Private (or Disconnected) Network*
+- Rất nhiều nơi có tường lửa (firewall) để ẩn mạng khỏi phần còn lại của thế giới để bảo vệ mình. Thông thường, các firewall dịch địa chỉ IP từ nội miền sang ngoại miền (cái mà tất cả mọi người trên thế giới đều biết) bằng cách sử dụng NAT (Network Address Translation).
+- Không cần lo lắng quá nhiều về NAT, vì quá trình này hoàn toàn trong suốt với bạn. 
+- VD: tôi có 1 firewall đặt tại nhà, 2 địa chỉ IP tĩnh được phân bổ cho bởi công ty DSL nhưng có đến 7 máy tính kết nối mạng. Sao có thể như thế được? Hai máy tính không thể chia sẻ cùng một địa chỉ IP, nếu không thì dữ liệu sẽ không biết địa chỉ nào để gửi đến! 
+- Câu trả lời là: các máy tính không cần dùng chung 1 địa chỉ IP. Có đến 24 triệu địa chỉ IP private được gán cho nó. Đây là những gì đang xảy ra:
+    
+    Nếu tôi đăng nhập vào máy tính từ xa, nó cho tôi biết tôi đã đăng nhập từ địa chỉ 64.81.52.10 (không phải là IP thực sự của tôi). Nhưng nếu hỏi máy tính của tôi địa chỉ IP của nó là gì, nó nói 10.0.0.5. Ai đang dịch từ địa chỉ IP này sang địa chỉ IP khác? Đúng vậy, firewall, bằng cách sử dụng NAT!
+
+    10.x.x.x là một trong số ít các mạng được sử dụng trong mạng nội bộ hoặc trên các mạng bị ngắt kết nối hoặc trên các mạng phía sau firewall. Các chi tiết về số mạng sử dụng nội bộ được nêu trong RFC 1918, nhưng thông thường là 10.x.x.x và 192.168.x.x, trong đó x là 0-255; ít phổ biến hơn là 172.y.x.x, trong đó y đi từ 16 đến 31.
+    
+## 4. System Calls or Bust
+
 
 
 
