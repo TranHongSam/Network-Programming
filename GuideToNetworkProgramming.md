@@ -140,14 +140,216 @@
     10.x.x.x là một trong số ít các mạng được sử dụng trong mạng nội bộ hoặc trên các mạng bị ngắt kết nối hoặc trên các mạng phía sau firewall. Các chi tiết về số mạng sử dụng nội bộ được nêu trong RFC 1918, nhưng thông thường là 10.x.x.x và 192.168.x.x, trong đó x là 0-255; ít phổ biến hơn là 172.y.x.x, trong đó y đi từ 16 đến 31.
     
 ## 4. System Calls or Bust
+- Các cuộc gọi hệ thống cho phép bạn truy cập vào chức năng mạng của Unix. Khi bạn gọi một trong các hàm này, kernel sẽ tiếp nhận và thực hiện tất cả công việc cho bạn một cách tự động.
 
+**4.1 socket() -Get the file descriptor**
 
+    #include <sys/types.h>
 
+    #include <sys/socket.h>
 
+    int socket(int domain, int type, int protocol);
 
+- Trước tiên, domain phải được đặt thành “PF_INET”. Tiếp theo,type cho kernel biết loại socket này là: SOCK_STREAM hoặc SOCK_DGRAM. Cuối cùng, đặt protocol là “0” để socket() chọn giao thức chính xác dựa trên type. (có nhiều domain, type hơn tôi đã liệt kê. Xem trang socket(). Ngoài ra, có cách "tốt hơn" để đặt protocol, nhưng đặt bằng 0 hoạt động trong 99,9% các trường hợp. Xem trang getprotobyname() nếu bạn hiếu kỳ.)
+- socket() trả về cho bạn các miêu tả socket mà bạn có thể sử dụng trong các cuộc gọi hệ thống sau này, hoặc trả về -1 nếu có lỗi. Biến toàn cục (global) errno được đặt thành giá trị của lỗi (xem trangperor()).
+- PF_INET gần giống với AF_INET mà bạn đã sử dụng khi khởi tạo trường sin_family trong struct sockaddr_in. Trên thực tế, chúng liên quan chặt chẽ đến mức chúng thực sự có cùng giá trị, nhiều lập trình viên sẽ gọi socket() và chuyển AF_INET làm đối số đầu tiên thay cho PF_INET. Có lẽ nào một dải địa chỉ (“AF” trong “AF_INET”) có thể hỗ trợ một số giao thức được giới thiệu bởi các họ giao thức (“PF” trong “PF_INET”)? Điều đó đã không xảy ra. Vì vậy, điều chính xác nhất cần làm là sử dụng AF_INET trong struct sockaddr_in và PF_INET trong cuộc gọi tới socket().
 
+**4.2 bind() - What port am I on?**
+- Một khi bạn đã tạo ra socket, bạn phải liên kết socket đó với 1 port trên máy của bạn. (Điều này thường được thực hiện xong nếu bạn listen() cho các kết nối đến từ 1 cổng cụ thể-MUDs thực hiện  điều này khi chúng cho bạn biết "telnet to x,y,z port 6969"). Số port được sử dụng bởi kernel để khớp với số gói tin đến bộ mô tả socket của một quy trình nhất định. Nếu bạn chỉ thực hiện 1 connect(), điều này dường như không cần thiết.
+- Đây là tóm tắt cho cuộc gọi hệ thống bind(): 
 
+    #include <sys/types.h>
 
+    #include <sys/socket.h>
 
+    int bind(int sockfd, struct sockaddr *my_addr, int addrlen);
 
+    //sockfd là file mô tả socket được trả về bởi socket()
 
+    //my_addr là con trỏ tới struct sockaddr chức các thông tin về địa chỉ của bạn, cụ thể là cổng và địa chỉ IP.
+
+    //addrlen có thể đặt thành sizeof *my_addr hay sizeof(struct sockaddr)
+
+- VD: 
+
+    <img src="https://2.pik.vn/20183551cba2-bdfd-4935-9dc3-c6796ceac0b4.jpg">
+
+    Chú ý: my_addr.sin_port nằm trong Network Byte Order. Vì vậy, là my_addr.sin_addr.s_addr. Một điều cần lưu ý là các tệp tiêu đề có thể khác từ hệ thống này qua hệ thống khác. Để chắc chắn, bạn nên kiểm tra lại trong man page.
+
+- Cuối cùng, 1 số quá trình nhận địa chỉ IP được and/or với port 1 cách tự động:
+
+    my_addr.sin_port=0; // chọn ngẫu nhiên 1 cổng k đc sd
+
+    my_addr.sin_addr.s_addr=INADDR_ANY; //sd địa chỉ IP of bạn
+
+    Bằng cách đặt my_addr.sin_port = 0, bind() sẽ chọn cổng cho bạn. Tương tự, đặt my_addr.sin_addr.s_addr = INADDR_ANY thì địa chỉ IP của máy sẽ được điền tự động trong quá trình chạy.
+
+- Nếu bạn chú ý đến những điểm nhỏ, bạn có thể đã thấy rằng tôi không đặt INADDR_ANY vào trong Network Byte Order. Tuy nhiên, INADDR_ANY thực sự là zero. Zero vẫn có số 0 trong bit ngay cả khi bạn sắp xếp lại các byte:
+
+    my_addr.sin_port=htons(0); //chọn ngẫu nhiên cổng k đc sd
+
+    my_addr.sin_addr.s_addr=hton1(INADDR_ANY); //sd đc IP of b
+
+- Hầu hết code bạn gặp phải sẽ không bận tâm chạy INADDR_ANY thông qua htonl().
+- bind () cũng trả về -1 trên lỗi và đặt errno thành giá trị của lỗi.
+- Một điều cần lưu ý khi gọi bind(): không được sử dụng các cổng dưới 1024, vì chúng được sử dụng cho các tổ chức (trừ khi bạn là superuser)! Bạn có thể sử dụng bất kỳ cổng nào trong các cổng còn lại đến dưới 65535 (miễn là chúng chưa được chương trình khác sử dụng).
+- Đôi khi, bạn có thể nhận thấy, bạn cố gắng chạy lại máy chủ,bind() không thành công, xác nhận “Địa chỉ đã được sử dụng”. Điều đó có nghĩa là gì? Một số socket đã được kết nối vẫn còn xung quanh kernel, và nó hogging cổng. Bạn có thể chờ cho đến khi nó mất (một phút hoặc lâu hơn), hoặc thêm code vào chương trình cho phép nó sử dụng lại cổng, như sau:
+
+    int yes=1;
+
+    //char yes='1'; // Solaris people use this
+
+    //lose the pesky "Address already in use" error message
+
+    if (setsockopt(listener,SOL_SOCKET, SO_REUSEADDR, &yes,sizeof(int)) == -1){
+
+        perror("setsockopt");
+
+        exit(1);
+    }
+
+- Một lưu ý cuối cùng nhỏ về bind (): có những lúc bạn hoàn toàn không thể gọi nó. Nếu bạn connect() từ một máy từ xa và bạn không quan tâm đến cổng local của bạn (như trường hợp telnet mà chỉ quan tâm đến cổng từ xa), bạn có thể chỉ cần gọi connect(), nó sẽ kiểm tra xem ổ cắm có được gắn kết không và sẽ bind() nó vào một cổng local chưa sử dụng nếu cần thiết.
+
+**4.3 connect() - Hey you!**
+- Hãy giả vờ trong vài phút bạn là ứng dụng telnet. Người dùng lệnh cho bạn để có được một bộ mô tả tập tin socket. Bạn tuân thủ và gọi socket(). Tiếp theo, người dùng yêu cầu bạn kết nối với “10.12.110.57” trên cổng “23” (cổng telnet tiêu chuẩn). 
+- Cuộc gọi connect() như sau:
+
+    #include <sys/types.h>
+
+    #include <sys/socket.h>
+
+    int connect(int sockfd, struct sockaddr *serv_addr, int addrlen);
+
+    //sockdf là bộ mô tả tệp tin socket vùng lân cận, được trả về bởi socket().
+    
+    //serv_addr là truct sockaddr chứa cổng đích và địa chỉ IP
+    
+    //addrlen có thể được đặt thành sizeof *serv_addr hoặc sizeof(struct sockaddr).
+
+- VD:
+
+    <img src="https://2.pik.vn/201829d42a96-ed3c-4c8d-b612-667f26f6f383.jpg">
+
+    <img src="https://2.pik.vn/2018646c82e0-563b-470d-b907-906ab316e6da.jpg">
+
+- Một lần nữa, hãy chắc chắn kiểm tra giá trị trả về từ connect() - nó sẽ trả về -1 nếu có lỗi và thiết lập biến errno. 
+- Ngoài ra, lưu ý rằng chúng ta đã không gọi bind(). Về cơ bản, chúng ta không quan tâm đến số cổng local của mình;chúng ta chỉ quan tâm đến nơi chúng ta đến (cổng từ xa). Kernel sẽ chọn một cổng local cho ta và trang web chúng ta kết nối sẽ tự động nhận thông tin này từ chúng ta. 
+
+**4.4 listen() -Will somebody please call me?**
+- Điều gì sẽ xảy ra nếu bạn không muốn kết nõi với máy từ xa (remote host)? Bạn muốn chờ đợi các kết nối đến và xử lý chúng theo một số cách. Quá trình gồm hai bước: đầu tiên listen(), sau đó accept().
+- Gọi listen khá đơn giản, nhưng cần giải thích một chút:
+
+    int listen(int sockfd, int backlog);
+
+    //sockfd là file mô tả socket thông thường từ hệ thống socket().
+
+    //backlog là số kết nối được chấp nhận vào hàng đợi đến. Các kết nối đến sẽ phải đợi trong hàng đợi đến khi bạn accept() và đây là giới hạn về số lượng có thể vào hàng đợi. Hầu hết các hệ thống ngầm giới hạn số lượng là 20, bạn có thể đặt từ 5 đến 10.
+
+- Như thường lệ, listen() trả về -1 và đặt errno nếu có lỗi.
+- Gọi bind() trước khi gọi listen() hay kernel sẽ nghe trên 1 cổng ngẫu nhiên. Nếu bạn định nghe các kết nối đến, chuỗi các cuộc gọi hệ thống bạn sẽ thực hiện là:
+
+    socket();
+
+    bind();
+
+    listen();
+
+    //accept() goes here
+
+**4.5 accept() -"Thank you for calling port 3490**
+- Điều gì sẽ xảy ra: ai đó ở rất xa sẽ cố gắng connect() với máy của bạn trên một cổng mà bạn đang listen(). Kết nối của họ sẽ được xếp hàng chờ đợi để được accept(). Bạn gọi accept()và yêu cầu nó nhận kết nối đang chờ xử lý. Nó sẽ trả lại cho bạn một bộ mô tả tập tin socket mới (brand new socket file descriptor) để sử dụng cho kết nối đơn này! Đúng vậy, đột nhiên bạn có hai bộ mô tả tập tin socket cho 1 kết nối. Bản gốc vẫn đang lắng nghe trên cổng của bạn và bản mới được tạo ra cuối cùng cũng sẵn sàng send() và recv(). 
+- Cuộc gọi ddc thực hiện như sau:
+
+    #include <sys/types.h>
+
+    #include <sys/socket.h>
+
+    int accept(int sockfd, stuct sockaddr *addr, socklen_t *addrlen);
+
+    //sockfd là bộ mô tả socket listen() . 
+    
+    //addr thường sẽ là con trỏ chỉ tới struct sockaddr_in cục bộ (local). Đó là nơi thông tin về sự kết nối đến sẽ tới (với nó bạn có thể xác định máy chủ nào đang gọi bạn từ port nào).  
+
+    //addrlen là 1 biến nguyên cục bộ (local integer variable)
+    có thể đặt thành sizeof *addr hay sizeof(struct sockaddr_in) trước khi địa chỉ của nó được chuyển tới accept(). Accept() sẽ không đặt nhiều byte hơn vào addr. Nếu đặt ít hơn, nó sẽ thay đổi giá trị của addrlen để phản ánh điều đó. 
+
+- accept() trả về -1 và đặt errno nếu có lỗi xảy ra. 
+- VD:
+
+    <img src="https://2.pik.vn/201832462eef-499a-4f32-b9e9-6c98db983511.jpg">
+
+- Một lần nữa, lưu ý rằng chúng ta sẽ sử dụng bộ mô tả socket new_fd cho tất cả các cuộc gọi send() và recv(). Nếu bạn chỉ nhận được một kết nối, bạn có thể close() việc nghe sockfd  để ngăn chặn nhiều kết nối đến trên cùng một cổng, nếu bạn muốn.
+
+**4.6 send() and recv() -Talk to me, baby!**
+- Có 2 hàm để truyền thông qua Stream Socket hoặc Datagram Socket. Nếu bạn muốn sử dụng Datagram Socket không được kết nối thông thường, bạn sẽ cần đọc phần sendto() và revcfrom() bên dưới. 
+- send():
+
+    int sent(int sockfd, const void *msg, int len, int flags);
+
+    //sockfd là bộ mô tả socket bạn muốn gửi dữ liệu đến (cho dù đó là cái được trả về bởi socket() hoặc cái bạn nhận được với accept()).
+
+    //msg là con trỏ tới dữ liệu bạn muốn gửi.
+
+    //len là chiều dài của dữ liệu dạng byte.
+
+    //chỉ cần thiết lập flags bằng 0 (xem phần send() ở man page để biết thêm thông tin về các cờ liên quan).
+
+- VD: 
+
+    <img src="https://2.pik.vn/201822c584b1-c5a3-4411-85b0-0d5316563c67.jpg">
+
+- send() trả về số lượng byte thực sự được gửi đi - có thể ít hơn số byte bạn gửi. Thỉnh thoảng, bạn yêu cầu nó gửi toàn bộ dữ liệu và nó không thể xử lý. Nó sẽ kích hoạt càng nhiều dữ liệu cần tốt và tin tưởng rằng bạn sẽ gửi phần dữ liệu còn lại sau. Nhớ rằng, nếu giá trị trả về bởi send() không khớp với giá trị len, thì tùy thuộc vào bạn có thể gửi hết phần còn lại của string hay không. Tin tốt là: nếu các gói nhỏ (nhở hơn 1K hoặc hơn) thì có thể gửi toàn bộ mọi thứ trong 1 lần. send() trả về -1 nếu xảy ra lỗi, và errno là số lỗi.
+- recv():
+
+    int recv(int sockfd, void *buf, int len, usigned int flags);
+
+    //sockfd là bộ mô tả socket để đọc.
+
+    //buf là bộ đệm (buffer) để đọc thông tin vào.
+
+    //len là chiều dài tối đa của bộ đệm.
+
+    //flags có thể đặt thành 0. (xem recv() ở phần man page để biết thêm thông tin về flag).
+
+- recv() trả về số lượng byte thực sự được đọc từ bộ đệm, hoặc -1 nếu xảy ra lỗi (errno được thiết lập tương ứng).
+- recv() có thể trả về 0. Điều đó có nghĩa là: phía đối diện đã đóng kết nối với bạn. 
+
+**4.7 sendto() and recvfrom() -Talk to me, DGRAM-style**
+- Vì Datagram Socket không được kết nối với một máy chủ từ xa,hãy đoán xem chúng ta cần cung cấp thông tin gì trước khi gửi gói? Địa chỉ đích!
+
+    int sendto(int sockfd, const void *msg, int len, unsigned int flags, const struct sockaddr *to,  socklen_t tolen);
+
+- Như bạn có thể thấy, cuộc gọi này cơ bản giống với cuộc gọi send() với 2 thông tin được thêm vào. to là con trỏ tới struct sockaddr chứa địa chỉ IP đích và port. tolen, an int deep-down có thể được thiết lập thành sizeof *to hoặc sizeof(struct sockaddr).
+- Giống send(), sendto() trả về số lượng byte thực tế được gửi (có thể ít hơn số byte bạn yêu cầu gửi đi), hoặc trả về -1 nếu xảy ra lỗi. 
+- Giống như recv(), recvfrom() có công thức:
+
+    int recvfrom(int sockaddr, void *buf, int len, unsigned int flag, struct sockaddr *from, int *fromlen);
+
+- Giống recv(), với một vài trường được thêm vào, from là con trỏ chỉ tới struct sockaddr cục bộ sẽ được điền với địa chỉ IP và port của máy ban đầu. fromlen là con trỏ tới int cục bộ cần được khởi tạo thành sizeof *from hoặc sizeof(struct, sockaddr). Khi hàm này trả về, fromlen sẽ chứa chiều dài thực sự của địa chỉ được lưu trong from.
+- recvfrom() trả về số lượng byte nhận được, hoặc trả về -1 nếu xảy ra lỗi (với error được thiết lập tương ứng).
+- Nhớ rằng, nếu bạn connect() 1 Datagram Socket, bạn có thể chỉ cần sử dụng send() và recv() cho tất cả các giao dịch của bạn. Socket vẫn là Datagram Socket và các gói vẫn sử dụng UDP,nhưng socket interface sẽ tự động thêm thông tin đích và nguồn cho bạn.
+
+**4.8 close() and shutdown() -Get outta my face!**
+- Hàm close():
+
+    close(sockaddr);
+
+- Điều này sẽ ngăn chặn bất kỳ việc đọc và ghi nào vào socket. Bất kỳ ai cố gắng đọc hay ghi vào socket từ thiết bị đầu cuối ở xa sẽ xảy ra lỗi.
+- Chỉ trong trường hợp bạn muốn kiểm soát nhiều hơn về cách socket đóng, bạn có thể sử dụng hàm shutdown(). Nó cho phép bạn cắt liên lạc theo 1 hướng nhất định hoặc cả 2 hướng (giống close()):
+
+    int shutdown(int sockfd, int how);
+
+    //sockfd là file mô tả socket bạn muốn shutdown.
+
+    //how là 1 trong các lựa chọn sau đây: 0 (không được phép nhận thêm); 1 (không được phép gửi thêm); 2 (không được phép nhận và gửi thêm)
+
+- shutdown() trả về 0 nếu thành công, -1 nếu xảy ra lỗi (với errno được thiết lập cho phù hợp).
+- Nếu bạn phải sử dụng shutdown() trên các Datagram Socket chưa được ngắt kết nối, nó sẽ đơn giản làm cho socket không sẵn sàng cho send() và rec() (nhớ rằng, bạn có thể sử dụng chúng nếu bạn connect() Datagram Socket của bạn).
+- Chú ý quan trọng: shutdown() không thực sự đóng được file descriptor, nó chỉ thay đổi khả năng sử dụng. Để giải phóng bộ mô tả socket, bạn cần phải sử dụng close().
+
+**4.9 getpeername() - Who are you?**
+- Hàm getpeername() cho bạn biết ai ở phía bên kia được kết nối qua socket:
+
+    #include <sys/socket.h>
+
+    int getpeername(int sockfd, struct sockaddr *addr, int *addr);
