@@ -353,3 +353,81 @@
     #include <sys/socket.h>
 
     int getpeername(int sockfd, struct sockaddr *addr, int *addr);
+
+    //sockfd miêu tả các stream socket được kết nối.
+
+    //addr là con trỏ tới struct sockaddr (hay struct sockaddr_in) sẽ chứa thông tin về đầu bên kia của sự kết nối.
+
+    //addrlen là con trỏ tới int, cần được khởi tạo thành sizeof *addr hay sizeof(struct sockaddr).
+
+- Hàm nầy trả về -1 nếu có lỗi, và đặt errno 1 cách thích hợp.
+- Một khi bạn có địa chỉ của họ, bạn có thể sử dụng  inet_ntoa() hay gethostbyteaddr() để in hoặc nhận thêm thông tin. Nhưng bạn không thể lấy được tên đăng nhập của họ. Nếu máy tính khác đang chạy ident daemon, điều này là có thể. Tuy nhiên, điều này nằm ngoài phạm vi của tài liệu này. Hãy xem RFC 141311 để biết thêm thông tin.)
+
+**4.10 gethostname() - Who am I?**
+- Hàm này trả về tên của máy tính mà chương trình của bạn đang chạy. Tên này sau đó có thể được sử dụng bởi gethostnam()để xác định địa chỉ IP của máy của bạn:
+
+    #include <unistd.h>
+
+    int gethostname(char *hostname, sizeof_t size);
+
+    //hostname là con trỏ chỉ tới mảng kiểu char chứa hostname mà hàm trả về.
+
+    //size là chiều dài tinh bằng byte của mảng hostname.
+
+- Hàm này trả về 0 nếu thành công, -1 nếu xảy ra lỗi, đặt errno 1 cách thích hợp.
+
+**4.11 DNS-You say "whitehouse.gov", I say "63.161.169.137"**
+- DNS (Domain Name Service). Tóm lại, bạn cho biết địa chỉ có thể đọc được của con người là gì, và nó sẽ cho bạn địa chỉ IP (để bạn có thể sử dụng nó với bind(), connect(), sendto(), hoặc bất cứ thứ gì). Bằng cách này, khi ai đó vào:
+
+    $ telnet whitehouse.gov
+
+    // telnet có thể phát hiện ra nó cần connect() tới "63.161.169.137".
+
+- Sử dụng hàm gethostbyname() để thực hiện DNS:
+
+    #include <netdb.h>
+
+    struct hostent *gethostbyname(const char *name);
+
+- Như bạn thấy, nó trả về con trỏ tới struct hostent:
+
+    struct hostent{
+
+        char *h_name;
+
+        char **h_aliases;
+
+        int h_addrtype;
+
+        int h_length:
+
+        char **h_addr_list;
+    };
+
+    #define h_addr h_addr_list[0]
+
+- Đây là miêu tả các trường trong struct hostent:
+
+    h_name: tên chính thức của host
+
+    h_aliases: Một mảng NULL được kết thúc bằng tên thay thế cho máy chủ
+
+    h_addrtype: loại địa chỉ được trả về, thường là AF_INET
+
+    h_length: chiều dài tính bằng byte của địa chỉ
+
+    h_addr_list: Một mảng zero-terminated của địa chỉ mạng cho máy chủ. Địa chỉ máy chủ nằm trong Network Byte Order.
+
+    h_addr: địa chỉ đầu tiên trong h_addr_list
+
+- gethostbyname() trả về 1 con trỏ được điền vào struct hostent, hoặc NULL hoặc lỗi (errno không được thiết lập mà thay vào đó là h_errno). Đọc herror() bên dưới.
+- VD:
+
+    <img src="https://2.pik.vn/2018633f57aa-45d7-4181-b9e0-eae9b4476d82.jpg">
+
+- Với hàm hethostbyname(),  bạn không thể sử dụng perror() để in lỗi (vì errno không được sử dụng). Thay và đó, hãy gọi herror().
+- Nó khá đơn giản. Bạn chỉ cần truyền chuỗi chứa tên máy (whitehouse.gov”) đến gethostbyname(), và sau đó lấy thông tin được trả về bởi struct hostent.
+- Sự kỳ quặc duy nhất có thể là việc in địa chỉ IP. h-> h_addr là một char *, nhưng inet_ntoa () muốn struct in_addr truyền cho nó. Vì vậy, cast h-> h_addr vào struct in_addr *, sau đó dereference nó để lấy dữ liệu.
+
+## 5. Client-Server Background
+- Phần này nói 
